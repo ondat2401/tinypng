@@ -79,6 +79,7 @@ export default function Home() {
   const [newKey, setNewKey] = useState("");
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;
 
@@ -137,6 +138,14 @@ export default function Home() {
     return () => {
       itemsRef.current.forEach((it) => URL.revokeObjectURL(it.previewUrl));
     };
+  }, []);
+
+  // Bật chế độ chọn cả thư mục cho input ẩn (thuộc tính không chuẩn của DOM).
+  useEffect(() => {
+    if (folderInputRef.current) {
+      folderInputRef.current.setAttribute("webkitdirectory", "");
+      folderInputRef.current.setAttribute("directory", "");
+    }
   }, []);
 
   const toggleDark = () => {
@@ -558,10 +567,11 @@ export default function Home() {
           setDragOver(true);
         }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
+        onDrop={async (e) => {
           e.preventDefault();
           setDragOver(false);
-          addFiles(e.dataTransfer.files);
+          const files = await collectFilesFromDrop(e.dataTransfer);
+          addFiles(files);
         }}
         onClick={() => inputRef.current?.click()}
         className={`mt-5 cursor-pointer rounded-2xl border-2 border-dashed p-10 text-center transition duration-300 ${
@@ -581,15 +591,35 @@ export default function Home() {
             e.target.value = "";
           }}
         />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files) addFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
         <div className={`text-5xl ${dragOver ? "animate-pop" : "animate-float"}`}>
           🎵
         </div>
         <p className="mt-3 text-lg font-medium text-slate-700 dark:text-slate-200">
-          Drag & drop images here
+          Drag & drop images or a whole folder here
         </p>
         <p className="text-sm text-slate-400 dark:text-slate-500">
-          or click to select — PNG, JPEG, WebP (max 30MB per image)
+          click to select files — PNG, JPEG, WebP (max 30MB per image)
         </p>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            folderInputRef.current?.click();
+          }}
+          className="mt-3 rounded-lg border border-violet-300 bg-white/70 px-3 py-1.5 text-sm font-medium text-violet-700 transition hover:-translate-y-0.5 hover:bg-violet-50 dark:border-violet-700 dark:bg-white/5 dark:text-violet-200 dark:hover:bg-white/10"
+        >
+          📁 Select a folder
+        </button>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -783,6 +813,67 @@ function StatusBadge({ status }: { status: Status }) {
       {label}
     </span>
   );
+}
+
+// Lấy toàn bộ file từ thao tác kéo-thả, duyệt đệ quy nếu là folder.
+async function collectFilesFromDrop(dt: DataTransfer): Promise<File[]> {
+  const items = dt.items;
+  // Grab entries synchronously (bắt buộc, vì dataTransfer bị vô hiệu sau await)
+  if (
+    items &&
+    items.length &&
+    typeof items[0].webkitGetAsEntry === "function"
+  ) {
+    const entries: FileSystemEntry[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry();
+      if (entry) entries.push(entry);
+    }
+    if (entries.length) {
+      const out: File[] = [];
+      await Promise.all(entries.map((en) => traverseEntry(en, out)));
+      return out;
+    }
+  }
+  // Fallback: trình duyệt không hỗ trợ entry API
+  return Array.from(dt.files);
+}
+
+// Duyệt đệ quy 1 entry (file hoặc thư mục) và gom file vào `out`.
+function traverseEntry(entry: FileSystemEntry, out: File[]): Promise<void> {
+  return new Promise((resolve) => {
+    if (entry.isFile) {
+      (entry as FileSystemFileEntry).file(
+        (file) => {
+          out.push(file);
+          resolve();
+        },
+        () => resolve()
+      );
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      const collected: FileSystemEntry[] = [];
+      // readEntries trả về theo lô, phải gọi lặp tới khi rỗng.
+      const readBatch = () => {
+        reader.readEntries(
+          (batch) => {
+            if (!batch.length) {
+              Promise.all(collected.map((e) => traverseEntry(e, out))).then(
+                () => resolve()
+              );
+            } else {
+              collected.push(...batch);
+              readBatch();
+            }
+          },
+          () => resolve()
+        );
+      };
+      readBatch();
+    } else {
+      resolve();
+    }
+  });
 }
 
 function maskKey(k: string): string {
