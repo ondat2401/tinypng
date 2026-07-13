@@ -45,9 +45,9 @@ const BTN_PRIMARY =
 // Danh sách API key có sẵn cho nội bộ — bấm để thêm nhanh.
 // CẢNH BÁO: các key này nằm trong mã nguồn phía client và sẽ lộ nếu repo public.
 const PRESET_KEYS: { label: string; value: string }[] = [
-  { label: "Key nội bộ 1", value: "mCZ31zPsBZPJn03BRN7l8YB8h2JbMH9W" },
-  // Thêm key khác tại đây, ví dụ:
-  // { label: "Key nội bộ 2", value: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+  { label: "Internal key 1", value: "mCZ31zPsBZPJn03BRN7l8YB8h2JbMH9W" },
+  // Add more keys here, e.g.:
+  // { label: "Internal key 2", value: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
 ];
 
 const FORMATS = [
@@ -486,7 +486,7 @@ export default function Home() {
                   onClick={() => setShowPresets((v) => !v)}
                   className="rounded-md border border-fuchsia-300 px-2 py-1 text-xs font-medium text-fuchsia-700 transition hover:bg-fuchsia-50 dark:border-fuchsia-700/60 dark:text-fuchsia-300 dark:hover:bg-white/10"
                 >
-                  Chọn key ▾
+                  Select key ▾
                 </button>
                 {showPresets && (
                   <div className="absolute right-0 z-20 mt-1 w-56 overflow-hidden rounded-lg border border-violet-200 bg-white shadow-lg dark:border-violet-800/60 dark:bg-slate-900">
@@ -704,7 +704,7 @@ export default function Home() {
             value={quality}
             onChange={(e) => setQuality(Number(e.target.value))}
             className="accent-fuchsia-500"
-            title="Chỉ áp dụng cho JPEG/WebP. 100 = giữ nguyên chất lượng tối đa."
+            title="Applies to JPEG/WebP only. 100 = keep maximum quality."
           />
           <span className="w-14 text-sm font-semibold text-fuchsia-600 dark:text-fuchsia-400">
             {quality === 100 ? "Max" : `${quality}%`}
@@ -712,8 +712,8 @@ export default function Home() {
         </div>
       </div>
       <p className="mt-1 text-xs text-slate-400">
-        Quality chỉ áp dụng cho JPEG/WebP (nén lại phía trình duyệt). PNG bỏ qua
-        tùy chọn này.
+        Quality applies to JPEG/WebP only (re-encoded in the browser). PNG
+        ignores this option.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
