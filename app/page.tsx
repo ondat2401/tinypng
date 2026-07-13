@@ -10,6 +10,7 @@ interface Item {
   id: string;
   file: File;
   name: string;
+  path: string; // đường dẫn tương đối trong folder (nếu có), mặc định = tên file
   originalSize: number;
   previewUrl: string;
   status: Status;
@@ -17,6 +18,12 @@ interface Item {
   blob?: Blob;
   outType?: string;
   error?: string;
+}
+
+// File kèm đường dẫn tương đối, dùng khi kéo folder / chọn folder.
+interface IncomingFile {
+  file: File;
+  path: string;
 }
 
 interface KeyEntry {
@@ -66,6 +73,7 @@ export default function Home() {
   const [resizeMethod, setResizeMethod] = useState("");
   const [rw, setRw] = useState("");
   const [rh, setRh] = useState("");
+  const [quality, setQuality] = useState(100); // 100 = giữ chất lượng tối đa (tắt re-encode)
   const [isDark, setIsDark] = useState(false);
   const [quota, setQuota] = useState<{ count: number; limit: number } | null>(
     null
@@ -198,23 +206,41 @@ export default function Home() {
     );
   }, []);
 
-  const addFiles = useCallback((fileList: FileList | File[]) => {
-    const incoming = Array.from(fileList).filter((f) =>
-      IMG_TYPES.includes(f.type)
-    );
-    if (!incoming.length) return;
-    setItems((prev) => [
-      ...prev,
-      ...incoming.map((file) => ({
-        id: `${file.name}-${file.size}-${crypto.randomUUID()}`,
-        file,
-        name: file.name,
-        originalSize: file.size,
-        previewUrl: URL.createObjectURL(file),
-        status: "queued" as Status,
-      })),
-    ]);
-  }, []);
+  const addFiles = useCallback(
+    (input: FileList | File[] | IncomingFile[]) => {
+      // Chuẩn hóa về IncomingFile[] (có đường dẫn tương đối).
+      const arr = Array.from(input as ArrayLike<File | IncomingFile>);
+      const normalized: IncomingFile[] = arr.map((x) =>
+        x instanceof File
+          ? { file: x, path: x.webkitRelativePath || x.name }
+          : (x as IncomingFile)
+      );
+      const incoming = normalized.filter((n) => IMG_TYPES.includes(n.file.type));
+      if (!incoming.length) return;
+
+      setItems((prev) => {
+        // Tính năng 1: lọc trùng theo đường dẫn + kích thước (bỏ ảnh đã có).
+        const seen = new Set(prev.map((it) => `${it.path}|${it.originalSize}`));
+        const fresh: Item[] = [];
+        for (const { file, path } of incoming) {
+          const dupKey = `${path}|${file.size}`;
+          if (seen.has(dupKey)) continue;
+          seen.add(dupKey);
+          fresh.push({
+            id: `${path}-${file.size}-${crypto.randomUUID()}`,
+            file,
+            name: file.name,
+            path,
+            originalSize: file.size,
+            previewUrl: URL.createObjectURL(file),
+            status: "queued" as Status,
+          });
+        }
+        return fresh.length ? [...prev, ...fresh] : prev;
+      });
+    },
+    []
+  );
 
   const compressOne = useCallback(
     async (item: Item, key: string): Promise<CompressResult> => {
@@ -244,13 +270,26 @@ export default function Home() {
           throw new Error(data.error || `Error ${res.status}`);
         }
 
-        const blob = await res.blob();
+        let blob = await res.blob();
         const outType = res.headers.get("X-Output-Type") || item.file.type;
         const count = Number(res.headers.get("X-Compression-Count"));
         const limit = Number(res.headers.get("X-Compression-Limit"));
         if (Number.isFinite(count) && count > 0) {
           setQuota({ count, limit: limit || 500 });
         }
+
+        // Tính năng 4: re-encode phía client theo mức chất lượng đã chọn.
+        // Chỉ áp dụng cho JPEG/WebP và khi quality < 100.
+        if (
+          quality < 100 &&
+          (outType === "image/jpeg" || outType === "image/webp")
+        ) {
+          const re = await reencode(blob, outType, quality / 100).catch(
+            () => null
+          );
+          if (re) blob = re;
+        }
+
         update(item.id, {
           status: "done",
           compressedSize: blob.size,
@@ -266,7 +305,7 @@ export default function Home() {
         return "error";
       }
     },
-    [convertTo, resizeMethod, rw, rh, update]
+    [convertTo, resizeMethod, rw, rh, quality, update]
   );
 
   const runQueue = useCallback(async () => {
@@ -651,7 +690,31 @@ export default function Home() {
             <span className="text-xs text-slate-400">px</span>
           </div>
         )}
+
+        {/* Tính năng 4: mức chất lượng (chỉ áp dụng cho JPEG/WebP) */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-slate-500 dark:text-slate-400">
+            Quality
+          </label>
+          <input
+            type="range"
+            min={40}
+            max={100}
+            step={5}
+            value={quality}
+            onChange={(e) => setQuality(Number(e.target.value))}
+            className="accent-fuchsia-500"
+            title="Chỉ áp dụng cho JPEG/WebP. 100 = giữ nguyên chất lượng tối đa."
+          />
+          <span className="w-14 text-sm font-semibold text-fuchsia-600 dark:text-fuchsia-400">
+            {quality === 100 ? "Max" : `${quality}%`}
+          </span>
+        </div>
       </div>
+      <p className="mt-1 text-xs text-slate-400">
+        Quality chỉ áp dụng cho JPEG/WebP (nén lại phía trình duyệt). PNG bỏ qua
+        tùy chọn này.
+      </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
@@ -718,6 +781,14 @@ export default function Home() {
             />
 
             <div className="min-w-0 flex-1">
+              {dirOf(it.path) && (
+                <p
+                  className="truncate text-xs text-violet-500 dark:text-violet-400"
+                  title={it.path}
+                >
+                  📁 {dirOf(it.path)}
+                </p>
+              )}
               <p className="truncate font-medium text-slate-800 dark:text-slate-100">
                 {it.name}
               </p>
@@ -815,8 +886,30 @@ function StatusBadge({ status }: { status: Status }) {
   );
 }
 
+// Mã hóa lại ảnh ở mức chất lượng cho trước (0..1) qua canvas — cho JPEG/WebP.
+async function reencode(
+  blob: Blob,
+  type: string,
+  quality: number
+): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close?.();
+    return blob;
+  }
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close?.();
+  return new Promise<Blob>((resolve) => {
+    canvas.toBlob((b) => resolve(b || blob), type, quality);
+  });
+}
+
 // Lấy toàn bộ file từ thao tác kéo-thả, duyệt đệ quy nếu là folder.
-async function collectFilesFromDrop(dt: DataTransfer): Promise<File[]> {
+async function collectFilesFromDrop(dt: DataTransfer): Promise<IncomingFile[]> {
   const items = dt.items;
   // Grab entries synchronously (bắt buộc, vì dataTransfer bị vô hiệu sau await)
   if (
@@ -830,22 +923,23 @@ async function collectFilesFromDrop(dt: DataTransfer): Promise<File[]> {
       if (entry) entries.push(entry);
     }
     if (entries.length) {
-      const out: File[] = [];
+      const out: IncomingFile[] = [];
       await Promise.all(entries.map((en) => traverseEntry(en, out)));
       return out;
     }
   }
   // Fallback: trình duyệt không hỗ trợ entry API
-  return Array.from(dt.files);
+  return Array.from(dt.files).map((f) => ({ file: f, path: f.name }));
 }
 
 // Duyệt đệ quy 1 entry (file hoặc thư mục) và gom file vào `out`.
-function traverseEntry(entry: FileSystemEntry, out: File[]): Promise<void> {
+// Đường dẫn lấy từ entry.fullPath (bỏ dấu "/" đầu) để giữ cấu trúc folder.
+function traverseEntry(entry: FileSystemEntry, out: IncomingFile[]): Promise<void> {
   return new Promise((resolve) => {
     if (entry.isFile) {
       (entry as FileSystemFileEntry).file(
         (file) => {
-          out.push(file);
+          out.push({ file, path: entry.fullPath.replace(/^\//, "") || file.name });
           resolve();
         },
         () => resolve()
@@ -874,6 +968,12 @@ function traverseEntry(entry: FileSystemEntry, out: File[]): Promise<void> {
       resolve();
     }
   });
+}
+
+// Lấy phần thư mục của đường dẫn tương đối (rỗng nếu file nằm ở gốc).
+function dirOf(path: string): string {
+  const i = path.lastIndexOf("/");
+  return i > 0 ? path.slice(0, i) : "";
 }
 
 function maskKey(k: string): string {
