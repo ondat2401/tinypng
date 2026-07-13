@@ -1,0 +1,9 @@
+{
+  "framework": "nextjs",
+  "regions": ["sin1"],
+  "functions": {
+    "app/api/compress/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
