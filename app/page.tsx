@@ -35,6 +35,14 @@ const LS_ACTIVE = "tc_active_key";
 const BTN_PRIMARY =
   "rounded-lg bg-gradient-to-r from-violet-600 to-pink-500 text-white font-semibold shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-fuchsia-500/30 hover:from-violet-700 hover:to-pink-600 active:translate-y-0 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:shadow-none";
 
+// Danh sách API key có sẵn cho nội bộ — bấm để thêm nhanh.
+// CẢNH BÁO: các key này nằm trong mã nguồn phía client và sẽ lộ nếu repo public.
+const PRESET_KEYS: { label: string; value: string }[] = [
+  { label: "Key nội bộ 1", value: "mCZ31zPsBZPJn03BRN7l8YB8h2JbMH9W" },
+  // Thêm key khác tại đây, ví dụ:
+  // { label: "Key nội bộ 2", value: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+];
+
 const FORMATS = [
   { value: "", label: "Keep original format" },
   { value: "image/webp", label: "→ WebP" },
@@ -67,6 +75,7 @@ export default function Home() {
   const [userKeys, setUserKeys] = useState<string[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [showKeys, setShowKeys] = useState(false);
+  const [showPresets, setShowPresets] = useState(false);
   const [newKey, setNewKey] = useState("");
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -160,6 +169,18 @@ export default function Home() {
     const next = userKeys.filter((k) => k !== value);
     persistKeys(next);
     selectKey(0);
+  };
+  // Chọn nhanh một key có sẵn: thêm vào danh sách (nếu chưa có) rồi kích hoạt.
+  const usePresetKey = (value: string) => {
+    setShowPresets(false);
+    const existing = userKeys.indexOf(value);
+    if (existing >= 0) {
+      selectKey(existing + 1); // +1 vì index 0 là "Default (.env)"
+      return;
+    }
+    const next = [...userKeys, value];
+    persistKeys(next);
+    selectKey(next.length);
   };
 
   const update = useCallback((id: string, patch: Partial<Item>) => {
@@ -410,6 +431,34 @@ export default function Home() {
               </span>
             ) : (
               <span className="text-slate-400">invalid key</span>
+            )}
+            {PRESET_KEYS.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowPresets((v) => !v)}
+                  className="rounded-md border border-fuchsia-300 px-2 py-1 text-xs font-medium text-fuchsia-700 transition hover:bg-fuchsia-50 dark:border-fuchsia-700/60 dark:text-fuchsia-300 dark:hover:bg-white/10"
+                >
+                  Chọn key ▾
+                </button>
+                {showPresets && (
+                  <div className="absolute right-0 z-20 mt-1 w-56 overflow-hidden rounded-lg border border-violet-200 bg-white shadow-lg dark:border-violet-800/60 dark:bg-slate-900">
+                    {PRESET_KEYS.map((p) => (
+                      <button
+                        key={p.value}
+                        onClick={() => usePresetKey(p.value)}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition hover:bg-fuchsia-50 dark:hover:bg-white/10"
+                      >
+                        <span className="text-slate-700 dark:text-slate-200">
+                          {p.label}
+                        </span>
+                        <span className="font-mono text-xs text-slate-400">
+                          {maskKey(p.value)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
             <button
               onClick={() => setShowKeys((v) => !v)}
